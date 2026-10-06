@@ -2,6 +2,7 @@
   running: false,
   sourceUrl: "",
   items: [],
+  importedItems: [],
   runs: [],
   currentRunId: "",
   attempts: 0,
@@ -77,7 +78,7 @@ async function handleMessage(message, sender) {
     }
 
     case "CLEAR_RESULTS":
-      await setState({ ...DEFAULT_STATE, items: [], runs: [], skipUrls: [] });
+      await setState({ ...DEFAULT_STATE, items: [], importedItems: [], runs: [], skipUrls: [] });
       return { ok: true };
 
     case "IMPORT_SKIP_URLS": {
@@ -90,6 +91,26 @@ async function handleMessage(message, sender) {
       state.skipUrls = Array.from(known);
       await setState(state);
       return { ok: true, imported: state.skipUrls.length };
+    }
+
+    case "IMPORT_MD_ITEMS": {
+      const state = await getState();
+      const added = mergeImportedItems(state, message.items || []);
+      const known = new Set((state.skipUrls || []).map(normalizeUrlForCompare));
+
+      for (const item of message.items || []) {
+        const normalized = normalizeUrlForCompare(item.url);
+        if (normalized) known.add(normalized);
+      }
+
+      for (const url of message.urls || []) {
+        const normalized = normalizeUrlForCompare(url);
+        if (normalized) known.add(normalized);
+      }
+
+      state.skipUrls = Array.from(known);
+      await setState(state);
+      return { ok: true, added, imported: state.importedItems.length, skipUrls: state.skipUrls.length };
     }
 
     case "QUEUE_APPLY_CAPTURE": {
@@ -137,16 +158,14 @@ async function handleMessage(message, sender) {
 function claimPendingCapture(tab) {
   prunePendingCaptures();
 
-  let index = pendingCaptures.findIndex((capture) => capture.openerTabId && capture.openerTabId === tab.openerTabId);
-  if (index < 0) {
-    index = pendingCaptures.findIndex((capture) => capture.windowId === tab.windowId);
+  let matches = pendingCaptures.filter((capture) => capture.openerTabId && capture.openerTabId === tab.openerTabId);
+  if (!matches.length) {
+    matches = pendingCaptures.filter((capture) => capture.windowId === tab.windowId);
   }
-  if (index < 0 && pendingCaptures.length) {
-    index = 0;
-  }
-  if (index < 0) return null;
+  if (!matches.length) matches = pendingCaptures;
+  if (!matches.length) return null;
 
-  return pendingCaptures.splice(index, 1)[0];
+  return matches[matches.length - 1];
 }
 
 function prunePendingCaptures() {
@@ -226,6 +245,7 @@ async function getState() {
   const stored = await chrome.storage.local.get("state");
   const state = { ...DEFAULT_STATE, ...(stored.state || {}) };
   state.items = state.items || [];
+  state.importedItems = state.importedItems || [];
   state.runs = state.runs || [];
   state.skipUrls = state.skipUrls || [];
 
@@ -289,6 +309,31 @@ function localDateKey() {
   return `${year}-${month}-${day}`;
 }
 
+function mergeImportedItems(state, items) {
+  const existing = new Set((state.importedItems || []).map((item) => normalizeUrlForCompare(item.url)).filter(Boolean));
+  let added = 0;
+
+  state.importedItems = state.importedItems || [];
+
+  for (const item of items || []) {
+    const normalized = normalizeUrlForCompare(item.url);
+    if (!normalized || existing.has(normalized)) continue;
+
+    existing.add(normalized);
+    state.importedItems.push({
+      company: normalizeDisplayText(item.company || "Imported"),
+      role: normalizeDisplayText(item.role || ""),
+      url: normalizeUrl(item.url),
+      source: "imported-md",
+      imported: true,
+      importedAt: new Date().toISOString()
+    });
+    added += 1;
+  }
+
+  return added;
+}
+
 function shouldSkipUrl(state, url) {
   const normalized = normalizeUrlForCompare(url);
   if (!normalized) return false;
@@ -297,8 +342,9 @@ function shouldSkipUrl(state, url) {
 
 function normalizeUrlForCompare(url) {
   try {
-    const parsed = new URL(String(url || "").trim());
+    const parsed = new URL(String(url || "").trim().replace(/\\+$/, ""));
     parsed.hash = "";
+    parsed.searchParams.delete("jr_id");
     return parsed.href.toLowerCase();
   } catch {
     return "";
@@ -310,7 +356,11 @@ function dedupeKey(item) {
 }
 
 function normalizeText(value) {
-  return value.replace(/\s+/g, " ").trim().toLowerCase();
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function normalizeDisplayText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function normalizeUrl(url) {
@@ -334,5 +384,25 @@ function isLinkedInUrl(url) {
     return false;
   }
 }
+
+function isBlockedJobUrl(url) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname.endsWith("ashbyhq.com") || hostname.includes("icims.com");
+  } catch {
+    return false;
+  }
+}
+
+function isGreenhouseUrl(url) {
+  try {
+    return new URL(url).hostname.toLowerCase().includes("greenhouse.io");
+  } catch {
+    return false;
+  }
+}
+
+
+
 
 

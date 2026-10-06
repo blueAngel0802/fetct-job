@@ -81,9 +81,10 @@ async function importMarkdownFile() {
   if (!file) return;
 
   const text = await file.text();
+  const items = parseMarkdownItems(text);
   const urls = extractUrls(text);
-  const response = await chrome.runtime.sendMessage({ type: "IMPORT_SKIP_URLS", urls });
-  statusText.textContent = `Imported ${response.imported || 0}`;
+  const response = await chrome.runtime.sendMessage({ type: "IMPORT_MD_ITEMS", items, urls });
+  statusText.textContent = `Imported ${response.added || 0} rows, ${response.skipUrls || 0} skip URLs`;
   importFile.value = "";
   refresh();
 }
@@ -108,7 +109,9 @@ async function getActiveTab() {
 }
 
 function renderState(state) {
-  const items = state?.items || [];
+  const fetchedItems = state?.items || [];
+  const importedItems = state?.importedItems || [];
+  const items = [...importedItems, ...fetchedItems];
   currentItems = items;
   statusText.textContent = state?.running ? "Running" : "Idle";
   startButton.disabled = Boolean(state?.running);
@@ -159,7 +162,8 @@ function renderItemList(items) {
     body.className = "job-row-body";
 
     const title = document.createElement("strong");
-    title.textContent = `${getSourceLabel(item.url)} | ${item.company || "Unknown company"} - ${item.role || "Unknown role"}`;
+    const importedLabel = item.imported ? " / Imported" : "";
+    title.textContent = `${getSourceLabel(item.url)}${importedLabel} | ${item.company || "Unknown company"} - ${item.role || "Unknown role"}`;
 
     const url = document.createElement("span");
     url.className = "job-url";
@@ -207,9 +211,9 @@ function clearSelection() {
 }
 
 async function openSelectedTabs() {
-  const urls = currentItems
+  const urls = Array.from(new Set(currentItems
     .map((item) => item.url)
-    .filter((url) => selectedUrls.has(url));
+    .filter((url) => selectedUrls.has(url))));
 
   for (const url of urls) {
     await chrome.tabs.create({ url, active: false });
@@ -260,6 +264,102 @@ function toTable(items) {
   return ["| Company | Role | URL |", "| --- | --- | --- |", ...rows].join("\n");
 }
 
+function parseMarkdownItems(text) {
+  const rows = [];
+
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) continue;
+
+    const cells = splitMarkdownRow(trimmed);
+    if (cells.length < 3) continue;
+
+    const normalizedHeader = cells.map((cell) => cleanMarkdownCell(cell).toLowerCase()).join("|");
+    if (normalizedHeader === "company|role|url") continue;
+    if (cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))) continue;
+
+    const url = normalizeUrl(extractFirstUrl(cells[2]));
+    if (!url) continue;
+
+    rows.push({
+      company: cleanMarkdownCell(cells[0]) || "Imported",
+      role: cleanMarkdownCell(cells[1]),
+      url,
+      imported: true,
+      source: "imported-md"
+    });
+  }
+
+  if (rows.length) return dedupeImportedRows(rows);
+
+  return extractUrls(text).map((url) => ({
+    company: "Imported",
+    role: "",
+    url,
+    imported: true,
+    source: "imported-md"
+  }));
+}
+
+function splitMarkdownRow(line) {
+  const content = line.replace(/^\|/, "").replace(/\|$/, "");
+  const cells = [];
+  let cell = "";
+  let escaping = false;
+
+  for (const character of content) {
+    if (escaping) {
+      cell += character;
+      escaping = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaping = true;
+      continue;
+    }
+
+    if (character === "|") {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    cell += character;
+  }
+
+  cells.push(cell.trim());
+  return cells;
+}
+
+function cleanMarkdownCell(value) {
+  return String(value || "")
+    .replace(/\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\\\|/g, "|")
+    .replace(/<br\s*\/?\>/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractFirstUrl(value) {
+  const match = String(value || "").match(/https?:\/\/[^\s|)<>]+/);
+  return match ? match[0] : value;
+}
+
+function dedupeImportedRows(rows) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const row of rows) {
+    const key = normalizeUrl(row.url);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+
+  return unique;
+}
+
 function extractUrls(text) {
   const matches = String(text || "").match(/https?:\/\/[^\s|)<>]+/g) || [];
   return Array.from(new Set(matches.map((url) => normalizeUrl(url)).filter(Boolean)));
@@ -267,8 +367,9 @@ function extractUrls(text) {
 
 function normalizeUrl(url) {
   try {
-    const parsed = new URL(String(url).trim());
+    const parsed = new URL(String(url).trim().replace(/\\+$/, ""));
     parsed.hash = "";
+    parsed.searchParams.delete("jr_id");
     return parsed.href;
   } catch {
     return "";
@@ -358,5 +459,8 @@ function markdownCell(value) {
     .replace(/\|/g, "\\|")
     .trim();
 }
+
+
+
 
 

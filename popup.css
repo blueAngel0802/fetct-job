@@ -16,7 +16,8 @@ select { box-sizing: border-box; width: 100%; padding: 6px 8px; background: #fff
 input { box-sizing: border-box; width: 100%; padding: 6px 8px; background: #fff; color: inherit; }
 .actions { display: grid; grid-template-columns: 1fr 1fr 1fr 1.25fr; gap: 8px; margin-top: 4px; }
 .domain-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.list-actions { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 8px; }
+.domain-actions button { grid-column: 1 / -1; }
+.list-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 button { cursor: pointer; background: #12664f; color: #fff; border-color: #12664f; font-weight: 700; }
 button.secondary { background: #fff; color: #2f3744; border-color: #c9d1db; }
 button:disabled { cursor: not-allowed; background: #d5dbe3; color: #667085; border-color: #d5dbe3; }
@@ -24,9 +25,12 @@ button:disabled { cursor: not-allowed; background: #d5dbe3; color: #667085; bord
 .result-meta { display: flex; justify-content: space-between; gap: 12px; }
 #sourcePage { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item-list { box-sizing: border-box; width: 100%; min-height: 240px; max-height: 380px; overflow: auto; padding: 8px; border: 1px solid #d8dee8; border-radius: 6px; background: #fff; color: #101828; font-size: 12px; line-height: 1.4; }
-.job-row { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; padding: 8px; border-bottom: 1px solid #edf0f5; font-weight: 400; }
+.job-row { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: start; padding: 8px; border-bottom: 1px solid #edf0f5; font-weight: 400; }
 .job-row:last-child { border-bottom: 0; }
 .job-row input { width: 16px; min-height: 16px; margin: 2px 0 0; padding: 0; }
+.job-row.is-applied { background: #ecfdf3; }
+.applied-toggle { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 11px; font-weight: 700; color: #12664f; }
+.applied-toggle input { margin-top: 0; }
 .job-row-body { display: grid; gap: 4px; min-width: 0; }
 .job-row strong { font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
 .job-url { color: #12664f; font-family: Consolas, "Courier New", monospace; overflow-wrap: anywhere; }
@@ -35,6 +39,12 @@ button:disabled { cursor: not-allowed; background: #d5dbe3; color: #667085; bord
   p, #status, .result-meta, .stats span { color: #a7b0bd; }
   input, select, .item-list, .stats div, button.secondary { background: #1f2937; border-color: #384252; color: #f9fafb; }
   .job-row { border-bottom-color: #384252; }
+  .job-row.is-applied { background: #123326; }
+  .applied-toggle { color: #6ee7b7; }
   .job-url { color: #6ee7b7; }
 }
+
+
+
+
 

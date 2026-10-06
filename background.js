@@ -112,6 +112,23 @@ async function handleMessage(message, sender) {
       await setState(state);
       return { ok: true, added, imported: state.importedItems.length, skipUrls: state.skipUrls.length };
     }
+    case "UPDATE_APPLIED": {
+      const state = await getState();
+      const target = message.item || message.url;
+      const updated = setAppliedOnItems(state.items, target, message.applied) + setAppliedOnItems(state.importedItems, target, message.applied);
+      await setState(state);
+      return { ok: true, updated };
+    }
+    case "UPDATE_APPLIED_BULK": {
+      const state = await getState();
+      const targets = message.items || message.urls || [];
+      let updated = 0;
+      for (const target of targets) {
+        updated += setAppliedOnItems(state.items, target, message.applied) + setAppliedOnItems(state.importedItems, target, message.applied);
+      }
+      await setState(state);
+      return { ok: true, updated };
+    }
 
     case "QUEUE_APPLY_CAPTURE": {
       const state = await getState();
@@ -219,7 +236,8 @@ async function finishCapture(tabId, tab, url, capture) {
     runId: capture.runId || state.currentRunId,
     capturedAt: new Date().toISOString(),
     isLinkedIn: isLinkedInUrl(finalUrl),
-    isGreenhouse: isGreenhouseUrl(finalUrl)
+    isGreenhouse: isGreenhouseUrl(finalUrl),
+    applied: false
   };
 
   const known = new Set(state.items.map(dedupeKey));
@@ -244,8 +262,8 @@ async function finishCapture(tabId, tab, url, capture) {
 async function getState() {
   const stored = await chrome.storage.local.get("state");
   const state = { ...DEFAULT_STATE, ...(stored.state || {}) };
-  state.items = state.items || [];
-  state.importedItems = state.importedItems || [];
+  state.items = (state.items || []).map((item) => ({ ...item, applied: Boolean(item.applied) }));
+  state.importedItems = (state.importedItems || []).map((item) => ({ ...item, applied: Boolean(item.applied) }));
   state.runs = state.runs || [];
   state.skipUrls = state.skipUrls || [];
 
@@ -326,12 +344,31 @@ function mergeImportedItems(state, items) {
       url: normalizeUrl(item.url),
       source: "imported-md",
       imported: true,
+      applied: Boolean(item.applied),
       importedAt: new Date().toISOString()
     });
     added += 1;
   }
 
   return added;
+}
+
+function setAppliedOnItems(items, target, applied) {
+  const structured = target && typeof target === "object";
+  const targetKey = structured ? dedupeKey(target) : "";
+  const normalized = normalizeUrlForCompare(structured ? target.url : target);
+  if (!targetKey && !normalized) return 0;
+
+  let updated = 0;
+  for (const item of items || []) {
+    const matches = targetKey ? dedupeKey(item) === targetKey : normalizeUrlForCompare(item.url) === normalized;
+    if (!matches) continue;
+    item.applied = Boolean(applied);
+    item.appliedAt = item.applied ? new Date().toISOString() : "";
+    updated += 1;
+  }
+
+  return updated;
 }
 
 function shouldSkipUrl(state, url) {
@@ -401,6 +438,12 @@ function isGreenhouseUrl(url) {
     return false;
   }
 }
+
+
+
+
+
+
 
 
 

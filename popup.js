@@ -15,11 +15,16 @@ const sourcePage = document.querySelector("#sourcePage");
 const selectAllButton = document.querySelector("#selectAllButton");
 const clearSelectionButton = document.querySelector("#clearSelectionButton");
 const openSelectedButton = document.querySelector("#openSelectedButton");
+const openAndMarkButton = document.querySelector("#openAndMarkButton");
+const markAppliedButton = document.querySelector("#markAppliedButton");
+const markNotAppliedButton = document.querySelector("#markNotAppliedButton");
 const domainSelect = document.querySelector("#domainSelect");
+const appliedFilter = document.querySelector("#appliedFilter");
 const selectDomainButton = document.querySelector("#selectDomainButton");
 
+let allItems = [];
 let currentItems = [];
-const selectedUrls = new Set();
+const selectedKeys = new Set();
 
 startButton.addEventListener("click", startJobright);
 stopButton.addEventListener("click", stopJobright);
@@ -30,7 +35,11 @@ importFile.addEventListener("change", importMarkdownFile);
 selectAllButton.addEventListener("click", selectAllItems);
 clearSelectionButton.addEventListener("click", clearSelection);
 openSelectedButton.addEventListener("click", openSelectedTabs);
+openAndMarkButton.addEventListener("click", openSelectedAndMarkApplied);
+markAppliedButton.addEventListener("click", () => markSelectedApplied(true));
+markNotAppliedButton.addEventListener("click", () => markSelectedApplied(false));
 selectDomainButton.addEventListener("click", selectDomainItems);
+appliedFilter.addEventListener("change", applyFilters);
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "STATE_CHANGED") renderState(message.state);
@@ -90,7 +99,7 @@ async function importMarkdownFile() {
 }
 
 async function clearSaved() {
-  selectedUrls.clear();
+  selectedKeys.clear();
   await chrome.runtime.sendMessage({ type: "CLEAR_RESULTS" });
   refresh();
 }
@@ -112,7 +121,8 @@ function renderState(state) {
   const fetchedItems = state?.items || [];
   const importedItems = state?.importedItems || [];
   const items = [...importedItems, ...fetchedItems];
-  currentItems = items;
+  allItems = items;
+  currentItems = getFilteredItems(allItems);
   statusText.textContent = state?.running ? "Running" : "Idle";
   startButton.disabled = Boolean(state?.running);
   stopButton.disabled = !state?.running;
@@ -121,8 +131,8 @@ function renderState(state) {
   attemptCount.textContent = String(state?.attempts || 0);
   sourcePage.textContent = state?.sourceUrl || "";
 
-  for (const url of Array.from(selectedUrls)) {
-    if (!items.some((item) => item.url === url)) selectedUrls.delete(url);
+  for (const key of Array.from(selectedKeys)) {
+    if (!currentItems.some((item) => getItemKey(item) === key)) selectedKeys.delete(key);
   }
 
   if (!items.length && !(state?.runs || []).length) {
@@ -131,7 +141,13 @@ function renderState(state) {
     return;
   }
 
-  renderItemList(items);
+  if (!currentItems.length) {
+    renderMessage("No jobs match the current filter.");
+    updateSelectionControls();
+    return;
+  }
+
+  renderItemList(currentItems);
   updateSelectionControls();
 }
 
@@ -146,15 +162,17 @@ function renderItemList(items) {
   const fragment = document.createDocumentFragment();
 
   items.slice().reverse().forEach((item) => {
-    const label = document.createElement("label");
-    label.className = "job-row";
+    const row = document.createElement("div");
+    row.className = `job-row${item.applied ? " is-applied" : ""}`;
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = selectedUrls.has(item.url);
+    checkbox.checked = selectedKeys.has(getItemKey(item));
+    checkbox.setAttribute("aria-label", "Select job");
     checkbox.addEventListener("change", () => {
-      if (checkbox.checked) selectedUrls.add(item.url);
-      else selectedUrls.delete(item.url);
+      const key = getItemKey(item);
+      if (checkbox.checked) selectedKeys.add(key);
+      else selectedKeys.delete(key);
       updateSelectionControls();
     });
 
@@ -169,9 +187,27 @@ function renderItemList(items) {
     url.className = "job-url";
     url.textContent = item.url || "";
 
+    const appliedControl = document.createElement("label");
+    appliedControl.className = "applied-toggle";
+
+    const appliedCheckbox = document.createElement("input");
+    appliedCheckbox.type = "checkbox";
+    appliedCheckbox.checked = Boolean(item.applied);
+    appliedCheckbox.addEventListener("change", async () => {
+      const applied = appliedCheckbox.checked;
+      appliedCheckbox.disabled = true;
+      await chrome.runtime.sendMessage({ type: "UPDATE_APPLIED", item: toItemRef(item), applied });
+      await refresh();
+      statusText.textContent = applied ? "Marked applied" : "Marked not applied";
+    });
+
+    const appliedText = document.createElement("span");
+    appliedText.textContent = "Applied";
+
+    appliedControl.append(appliedCheckbox, appliedText);
     body.append(title, url);
-    label.append(checkbox, body);
-    fragment.append(label);
+    row.append(checkbox, body, appliedControl);
+    fragment.append(row);
   });
 
   itemList.append(fragment);
@@ -188,7 +224,7 @@ function renderError(message) {
 
 function selectAllItems() {
   currentItems.forEach((item) => {
-    if (item.url) selectedUrls.add(item.url);
+    if (item.url) selectedKeys.add(getItemKey(item));
   });
   renderItemList(currentItems);
   updateSelectionControls();
@@ -198,22 +234,20 @@ function selectDomainItems() {
   const sourceKey = domainSelect.value;
   currentItems.forEach((item) => {
     if (!item.url) return;
-    if (sourceKey === "all" || getSourceKey(item.url) === sourceKey) selectedUrls.add(item.url);
+    if (sourceKey === "all" || getSourceKey(item.url) === sourceKey) selectedKeys.add(getItemKey(item));
   });
   renderItemList(currentItems);
   updateSelectionControls();
 }
 
 function clearSelection() {
-  selectedUrls.clear();
+  selectedKeys.clear();
   renderItemList(currentItems);
   updateSelectionControls();
 }
 
 async function openSelectedTabs() {
-  const urls = Array.from(new Set(currentItems
-    .map((item) => item.url)
-    .filter((url) => selectedUrls.has(url))));
+  const urls = getSelectedUrls();
 
   for (const url of urls) {
     await chrome.tabs.create({ url, active: false });
@@ -222,8 +256,78 @@ async function openSelectedTabs() {
   statusText.textContent = `Opened ${urls.length}`;
 }
 
+async function openSelectedAndMarkApplied() {
+  const urls = getSelectedUrls();
+  if (!urls.length) return;
+
+  const items = getSelectedItemRefs();
+  const response = await chrome.runtime.sendMessage({ type: "UPDATE_APPLIED_BULK", items, applied: true });
+  await refresh();
+
+  for (const url of urls) {
+    await chrome.tabs.create({ url, active: false });
+  }
+
+  statusText.textContent = `Opened ${urls.length}, marked ${response.updated ?? 0} applied`;
+}
+
+async function markSelectedApplied(applied) {
+  const urls = getSelectedUrls();
+  if (!urls.length) return;
+
+  const items = getSelectedItemRefs();
+  const response = await chrome.runtime.sendMessage({ type: "UPDATE_APPLIED_BULK", items, applied });
+  await refresh();
+  statusText.textContent = applied ? `Marked ${response.updated ?? 0} applied` : `Marked ${response.updated ?? 0} not applied`;
+}
+function applyFilters() {
+  currentItems = getFilteredItems(allItems);
+  for (const key of Array.from(selectedKeys)) {
+    if (!currentItems.some((item) => getItemKey(item) === key)) selectedKeys.delete(key);
+  }
+
+  if (!currentItems.length) renderMessage("No jobs match the current filter.");
+  else renderItemList(currentItems);
+  updateSelectionControls();
+}
+
+function getFilteredItems(items) {
+  const filter = appliedFilter.value;
+  if (filter === "applied") return items.filter((item) => Boolean(item.applied));
+  if (filter === "not-applied") return items.filter((item) => !item.applied);
+  return items;
+}
+
+function getSelectedItems() {
+  return currentItems.filter((item) => selectedKeys.has(getItemKey(item)));
+}
+
+function getSelectedItemRefs() {
+  return getSelectedItems().map(toItemRef);
+}
+
+function getSelectedUrls() {
+  return Array.from(new Set(getSelectedItems().map((item) => item.url).filter(Boolean)));
+}
+
+function toItemRef(item) {
+  return {
+    company: item.company || "",
+    role: item.role || "",
+    url: item.url || ""
+  };
+}
+
+function getItemKey(item) {
+  return dedupeKey(item);
+}
+
 function updateSelectionControls() {
-  openSelectedButton.disabled = selectedUrls.size === 0;
+  const hasSelection = selectedKeys.size > 0;
+  openSelectedButton.disabled = !hasSelection;
+  openAndMarkButton.disabled = !hasSelection;
+  markAppliedButton.disabled = !hasSelection;
+  markNotAppliedButton.disabled = !hasSelection;
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -234,8 +338,18 @@ function clampNumber(value, min, max, fallback) {
 
 function toMarkdown(state) {
   const items = state?.items || [];
+  const importedItems = state?.importedItems || [];
   const runs = state?.runs?.length ? state.runs : [{ id: "legacy", label: "V1", date: "", itemIds: items.map(dedupeKey) }];
   const sections = [];
+
+  if (importedItems.length) {
+    sections.push("## Imported");
+    for (const group of groupItemsBySource(importedItems)) {
+      sections.push("");
+      sections.push(`### ${group.label}`);
+      sections.push(toTable(group.items));
+    }
+  }
 
   for (const run of runs) {
     const runItems = items.filter((item) => item.runId === run.id || (run.itemIds || []).includes(dedupeKey(item)));
@@ -252,18 +366,17 @@ function toMarkdown(state) {
 
   return sections.join("\n").trim();
 }
-
 function toTable(items) {
   const rows = (items || []).map((item) => {
     const company = markdownCell(item.company || "");
     const role = markdownCell(item.role || "");
     const url = markdownCell(item.url || "");
-    return `| ${company} | ${role} | ${url} |`;
+    const applied = item.applied ? "Yes" : "No";
+    return `| ${company} | ${role} | ${url} | ${applied} |`;
   });
 
-  return ["| Company | Role | URL |", "| --- | --- | --- |", ...rows].join("\n");
+  return ["| Company | Role | URL | Applied |", "| --- | --- | --- | --- |", ...rows].join("\n");
 }
-
 function parseMarkdownItems(text) {
   const rows = [];
 
@@ -274,8 +387,8 @@ function parseMarkdownItems(text) {
     const cells = splitMarkdownRow(trimmed);
     if (cells.length < 3) continue;
 
-    const normalizedHeader = cells.map((cell) => cleanMarkdownCell(cell).toLowerCase()).join("|");
-    if (normalizedHeader === "company|role|url") continue;
+    const headerCells = cells.map((cell) => cleanMarkdownCell(cell).toLowerCase());
+    if (headerCells[0] === "company" && headerCells[1] === "role" && headerCells[2] === "url") continue;
     if (cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))) continue;
 
     const url = normalizeUrl(extractFirstUrl(cells[2]));
@@ -285,6 +398,7 @@ function parseMarkdownItems(text) {
       company: cleanMarkdownCell(cells[0]) || "Imported",
       role: cleanMarkdownCell(cells[1]),
       url,
+      applied: parseAppliedCell(cells[3]),
       imported: true,
       source: "imported-md"
     });
@@ -296,9 +410,15 @@ function parseMarkdownItems(text) {
     company: "Imported",
     role: "",
     url,
+    applied: false,
     imported: true,
     source: "imported-md"
   }));
+}
+
+function parseAppliedCell(value) {
+  const normalized = cleanMarkdownCell(value).toLowerCase();
+  return ["yes", "y", "true", "1", "applied", "done"].includes(normalized);
 }
 
 function splitMarkdownRow(line) {
@@ -459,6 +579,14 @@ function markdownCell(value) {
     .replace(/\|/g, "\\|")
     .trim();
 }
+
+
+
+
+
+
+
+
 
 
 

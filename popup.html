@@ -50,12 +50,20 @@
             <option value="greenhouse">Greenhouse</option>
             <option value="linkedin">Linkedin</option>
           </select>
+          <select id="appliedFilter" aria-label="Applied filter">
+            <option value="all">All statuses</option>
+            <option value="not-applied">Not applied</option>
+            <option value="applied">Applied</option>
+          </select>
           <button id="selectDomainButton" class="secondary" type="button">Select domain</button>
         </div>
         <div class="list-actions">
           <button id="selectAllButton" class="secondary" type="button">Select all</button>
           <button id="clearSelectionButton" class="secondary" type="button">Clear selection</button>
+          <button id="markAppliedButton" class="secondary" type="button" disabled>Mark applied</button>
+          <button id="markNotAppliedButton" class="secondary" type="button" disabled>Mark not applied</button>
           <button id="openSelectedButton" type="button" disabled>Open selected</button>
+          <button id="openAndMarkButton" type="button" disabled>Open + mark</button>
         </div>
         <div id="itemList" class="item-list" tabindex="0">Open https://jobright.ai/jobs/recommend, then press Start.</div>
       </section>
@@ -63,4 +71,6 @@
     <script src="popup.js"></script>
   </body>
 </html>
+
+
 

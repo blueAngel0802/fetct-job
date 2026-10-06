@@ -1,0 +1,66 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Job URL Collector</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <div><h1>Job URL Collector</h1><p>Jobright first, Remotive next.</p></div>
+        <span id="status">Idle</span>
+      </header>
+      <section class="stats" aria-label="Collector stats">
+        <div><strong id="savedCount">0</strong><span>saved</span></div>
+        <div><strong id="duplicateCount">0</strong><span>duplicates/skipped</span></div>
+        <div><strong id="attemptCount">0</strong><span>checked</span></div>
+      </section>
+      <section class="controls" aria-label="Collector controls">
+        <label for="maxJobs">Max jobs this run</label>
+        <input id="maxJobs" type="number" min="1" max="1000" value="100">
+        <label for="delayMs">Delay per job, ms</label>
+        <input id="delayMs" type="number" min="500" max="15000" step="250" value="2500">
+        <label for="importFile">Skip URLs from MD</label>
+        <input id="importFile" type="file" accept=".md,.txt,text/markdown,text/plain">
+        <div class="actions">
+          <button id="startButton" type="button">Start</button>
+          <button id="stopButton" type="button" disabled>Stop</button>
+          <button id="copyButton" type="button">Copy MD</button>
+          <button id="downloadButton" type="button">Download MD</button>
+        </div>
+        <button id="clearButton" class="secondary" type="button">Clear saved list</button>
+      </section>
+      <section class="results" aria-label="Saved jobs">
+        <div class="result-meta"><strong>Fetched jobs</strong><span id="sourcePage"></span></div>
+        <div class="domain-actions">
+          <select id="domainSelect" aria-label="Domain group">
+            <option value="all">All domains</option>
+            <option value="normal">No-linkedin url</option>
+            <option value="lever">Lever</option>
+            <option value="adp">ADP</option>
+            <option value="workable">Workable</option>
+            <option value="paylocity">Paylocity</option>
+            <option value="ziprecruiter">ZipRecruiter</option>
+            <option value="dice">Dice</option>
+            <option value="rippling">Rippling</option>
+            <option value="bamboohr">BambooHR</option>
+            <option value="workday">Workday</option>
+            <option value="greenhouse">Greenhouse</option>
+            <option value="linkedin">Linkedin</option>
+          </select>
+          <button id="selectDomainButton" class="secondary" type="button">Select domain</button>
+        </div>
+        <div class="list-actions">
+          <button id="selectAllButton" class="secondary" type="button">Select all</button>
+          <button id="clearSelectionButton" class="secondary" type="button">Clear selection</button>
+          <button id="openSelectedButton" type="button" disabled>Open selected</button>
+        </div>
+        <div id="itemList" class="item-list" tabindex="0">Open https://jobright.ai/jobs/recommend, then press Start.</div>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
+

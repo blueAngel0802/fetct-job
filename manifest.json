@@ -1,0 +1,17 @@
+﻿{
+  "manifest_version": 3,
+  "name": "Job URL Collector",
+  "description": "Collect original apply URLs from Jobright recommendations and export deduped results.",
+  "version": "0.2.0",
+  "permissions": ["activeTab", "scripting", "tabs", "storage", "downloads"],
+  "host_permissions": ["https://jobright.ai/*", "https://*.jobright.ai/*", "https://*/*", "http://*/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://jobright.ai/jobs/recommend*", "https://www.jobright.ai/jobs/recommend*"],
+      "js": ["content-jobright.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "Job URL Collector", "default_popup": "popup.html" }
+}
